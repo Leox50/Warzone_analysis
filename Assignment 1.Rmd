@@ -1,0 +1,640 @@
+---
+title: "ECON390 Assignment 1"
+author: "Volodymyr Kotov"
+output: 
+  prettydoc::html_pretty:
+    toc: true
+    theme: "cayman"
+    highlight: "vignette"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+Installing packages:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+packages<-c(
+  "rlang",
+  "dplyr",
+  "ggplot2",
+  "gridExtra",
+  "tidyverse",
+  "colourvalues",
+  "viridis",
+  "usmap",
+  "maptools",
+  "rgdal",
+  "haven",
+  "ggrepel"
+)
+
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(packages, character.only = T)
+sapply(packages, require, character.only = TRUE)
+
+```
+
+Setting up the environment:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+setwd("~/Desktop/KSE/Warzone analysis")
+
+```
+
+## 1. Uploading data
+
+### 1a.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+data_month_NL <- read.csv("data_month_NL.csv")
+
+```
+
+Creation of light indexes
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+df1 <- data_month_NL
+
+df1$NLI <- df1$nl_sum_4/(df1$area_sq_km - 0.141*df1$nl_nodata_4)
+df1$NLI2 <- df1$nl_mean_4/df1$nl_std_4
+
+```
+
+
+### 1b.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+data_NL_GT <- readRDS("data_NL_GT.rds")
+
+```
+
+
+### 1c.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+Region_by_year_GDP_panel <- read_dta("Region by year GDP panel.dta")
+
+```
+
+## 2. Filtering
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+#creating a vector of regions of interest
+team_6_regs_id <- c(
+  "UA_12",
+  "UA_53",
+  "UA_35",
+  "UA_71",
+  "UA_05"
+  )
+
+#filtering
+df2 <- df1 %>% 
+  filter(., reg %in% team_6_regs_id)
+
+df3 <- data_NL_GT %>% 
+  filter(., reg %in% team_6_regs_id)
+
+df4 <- Region_by_year_GDP_panel %>% 
+  filter(., reg %in% team_6_regs_id)
+
+```
+
+## 3. Merging
+
+As we need to select our key variables of interest, we will stick to the following ones:
+
+- data_month_NL:
+  - reg, name, year, month, NLI, NLI2, tw_count, area_sq_km
+- data_month_NL:
+  - reg, year, Labor_index, Holiday_index
+- Region_by_year_GDP_panel:
+  - reg, year, GDP
+  
+```{r}
+
+df2 <- df2 %>% 
+  select(., c(reg, name, year, month, NLI, NLI2, tw_count, area_sq_km))
+
+df3 <- df3 %>% 
+  select(., c(reg, year, Labor_index, Holiday_index))
+
+```
+
+
+In order to remove a month variable, we will pivot the month variable on the variables of interest:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+df2 <- df2 %>%
+  pivot_wider(names_from = month, values_from = c(NLI, NLI2, tw_count))
+
+```
+
+Now, we are ready to merge all of the dataframes:
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+df5 <- list(df2,df3,df4) %>% reduce(left_join, by=c('year','reg'))
+
+```
+
+# 4. Graphs
+
+### Barplots
+
+As we are mostly interested in the impact of war on the economic activity, we build a barplot with the information below:
+
+ - 1st bar: the mean of NLI indexes of all years before 2022
+ - 2-3rd bars: NLI in February 2021 and 2022
+ - 4-5th bars: NLI in March 2021 and 2022
+ - 6-7th bars: NLI in April 2021 and 2022
+ - 8-9th bars: NLI in May 2021 and 2022
+
+#### Vinnytska oblast
+
+```{r}
+
+#df5$year<- format(as.Date(df5$year, format="%d/%m/%Y"),"%Y")
+
+df_eda_vin <- df5 %>% 
+  filter(., df5$reg == "UA_05" & df5$year > 2011)
+
+Mean_NLI_bw_vin <- c(mean(df_eda_vin$NLI_2[1:(length(df_eda_vin$NLI_2)-1)]),
+                    mean(df_eda_vin$NLI_3[1:(length(df_eda_vin$NLI_2)-1)]),
+                    mean(df_eda_vin$NLI_4[1:(length(df_eda_vin$NLI_2)-1)]),
+                    mean(df_eda_vin$NLI_5[1:(length(df_eda_vin$NLI_2)-1)]))
+
+NLI_2021_vin <- c(df_eda_vin$NLI_2[10],
+              df_eda_vin$NLI_3[10],
+              df_eda_vin$NLI_4[10],
+              df_eda_vin$NLI_5[10])
+
+NLI_2022_vin <- c(df_eda_vin$NLI_2[11],
+              df_eda_vin$NLI_3[11],
+              df_eda_vin$NLI_4[11],
+              df_eda_vin$NLI_5[11])
+
+seq_month <- c("February","March","April","May")
+
+df_vin <- data.frame(Mean_NLI_bw_vin,NLI_2021_vin,NLI_2022_vin,seq_month)
+
+df_vin <- df_vin %>% 
+  pivot_longer(
+    cols = c("NLI_2021_vin","NLI_2022_vin","Mean_NLI_bw_vin"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_vin$ord <- c(1:12)
+
+df_vin %>% 
+  ggplot(., aes(x=reorder(seq_month, ord),y=value, fill = NLI)) +
+  geom_bar(stat = "identity",position = "dodge",colour = "black") +
+  geom_text(aes(label = round(value,2)), colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)) +
+  labs(x="Month",y="NLI",title="Vinnytska oblast NLI", 
+       caption="Graph: Barplot")
+
+```
+
+#### Dniprotpetrovska oblast 
+
+```{r}
+
+df_eda_dnp <- df5 %>% 
+  filter(., df5$reg == "UA_12" & df5$year > 2011)
+
+Mean_NLI_bw_dnp <- c(mean(df_eda_dnp$NLI_2[1:(length(df_eda_dnp$NLI_2)-1)]),
+                    mean(df_eda_dnp$NLI_3[1:(length(df_eda_dnp$NLI_2)-1)]),
+                    mean(df_eda_dnp$NLI_4[1:(length(df_eda_dnp$NLI_2)-1)]),
+                    mean(df_eda_dnp$NLI_5[1:(length(df_eda_dnp$NLI_2)-1)]))
+
+NLI_2021_dnp <- c(df_eda_dnp$NLI_2[10],
+              df_eda_dnp$NLI_3[10],
+              df_eda_dnp$NLI_4[10],
+              df_eda_dnp$NLI_5[10])
+
+NLI_2022_dnp <- c(df_eda_dnp$NLI_2[11],
+              df_eda_dnp$NLI_3[11],
+              df_eda_dnp$NLI_4[11],
+              df_eda_dnp$NLI_5[11])
+
+df_dnp <- data.frame(Mean_NLI_bw_dnp,NLI_2021_dnp,NLI_2022_dnp,seq_month)
+
+df_dnp <- df_dnp %>% 
+  pivot_longer(
+    cols = c("NLI_2021_dnp","NLI_2022_dnp","Mean_NLI_bw_dnp"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_dnp$ord <- c(1:12)
+
+df_dnp %>% 
+  ggplot(., aes(x=reorder(seq_month, ord),y=value, fill = NLI)) +
+  geom_bar(stat = "identity",position = "dodge",colour = "black") +
+  geom_text(aes(label = round(value,2)), colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)) +
+  labs(x="Month",y="NLI",title="Dnipropetrovska oblast NLI", 
+       caption="Graph: Barplot")
+
+```
+
+#### Kirovohradska oblast 
+
+```{r}
+
+df_eda_khd <- df5 %>% 
+  filter(., df5$reg == "UA_35" & df5$year > 2011)
+
+Mean_NLI_bw_khd <- c(mean(df_eda_khd$NLI_2[1:(length(df_eda_khd$NLI_2)-1)]),
+                    mean(df_eda_khd$NLI_3[1:(length(df_eda_khd$NLI_2)-1)]),
+                    mean(df_eda_khd$NLI_4[1:(length(df_eda_khd$NLI_2)-1)]),
+                    mean(df_eda_khd$NLI_5[1:(length(df_eda_khd$NLI_2)-1)]))
+
+NLI_2021_khd <- c(df_eda_khd$NLI_2[10],
+              df_eda_khd$NLI_3[10],
+              df_eda_khd$NLI_4[10],
+              df_eda_khd$NLI_5[10])
+
+NLI_2022_khd <- c(df_eda_khd$NLI_2[11],
+              df_eda_khd$NLI_3[11],
+              df_eda_khd$NLI_4[11],
+              df_eda_khd$NLI_5[11])
+
+df_khd <- data.frame(Mean_NLI_bw_khd,NLI_2021_khd,NLI_2022_khd,seq_month)
+
+df_khd <- df_khd %>% 
+  pivot_longer(
+    cols = c("NLI_2021_khd","NLI_2022_khd","Mean_NLI_bw_khd"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_khd$ord <- c(1:12)
+
+df_khd %>% 
+  ggplot(., aes(x=reorder(seq_month, ord),y=value, fill = NLI)) +
+  geom_bar(stat = "identity",position = "dodge",colour = "black") +
+  geom_text(aes(label = round(value,2)), colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)) +
+  labs(x="Month",y="NLI",title="Kirovohradska oblast NLI", 
+       caption="Graph: Barplot")
+
+```
+
+#### Poltavska oblast 
+
+```{r}
+
+df_eda_plt <- df5 %>% 
+  filter(., df5$reg == "UA_53" & df5$year > 2011)
+
+Mean_NLI_bw_plt <- c(mean(df_eda_plt$NLI_2[1:(length(df_eda_plt$NLI_2)-1)]),
+                    mean(df_eda_plt$NLI_3[1:(length(df_eda_plt$NLI_2)-1)]),
+                    mean(df_eda_plt$NLI_4[1:(length(df_eda_plt$NLI_2)-1)]),
+                    mean(df_eda_plt$NLI_5[1:(length(df_eda_plt$NLI_2)-1)]))
+
+NLI_2021_plt <- c(df_eda_plt$NLI_2[10],
+              df_eda_plt$NLI_3[10],
+              df_eda_plt$NLI_4[10],
+              df_eda_plt$NLI_5[10])
+
+NLI_2022_plt <- c(df_eda_plt$NLI_2[11],
+              df_eda_plt$NLI_3[11],
+              df_eda_plt$NLI_4[11],
+              df_eda_plt$NLI_5[11])
+
+df_plt <- data.frame(Mean_NLI_bw_plt,NLI_2021_plt,NLI_2022_plt,seq_month)
+
+df_plt <- df_plt %>% 
+  pivot_longer(
+    cols = c("NLI_2021_plt","NLI_2022_plt","Mean_NLI_bw_plt"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_plt$ord <- c(1:12)
+
+df_plt %>% 
+  ggplot(., aes(x=reorder(seq_month, ord),y=value, fill = NLI)) +
+  geom_bar(stat = "identity",position = "dodge",colour = "black") +
+  geom_text(aes(label = round(value,2)), colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)) +
+  labs(x="Month",y="NLI",title="Poltavska oblast NLI", 
+       caption="Graph: Barplot")
+
+```
+
+#### Cherkaska oblsat
+
+```{r}
+
+df_eda_chr <- df5 %>% 
+  filter(., df5$reg == "UA_71" & df5$year > 2011)
+
+Mean_NLI_bw_chr <- c(mean(df_eda_chr$NLI_2[1:(length(df_eda_chr$NLI_2)-1)]),
+                    mean(df_eda_chr$NLI_3[1:(length(df_eda_chr$NLI_2)-1)]),
+                    mean(df_eda_chr$NLI_4[1:(length(df_eda_chr$NLI_2)-1)]),
+                    mean(df_eda_chr$NLI_5[1:(length(df_eda_chr$NLI_2)-1)]))
+
+NLI_2021_chr <- c(df_eda_chr$NLI_2[10],
+              df_eda_chr$NLI_3[10],
+              df_eda_chr$NLI_4[10],
+              df_eda_chr$NLI_5[10])
+
+NLI_2022_chr <- c(df_eda_chr$NLI_2[11],
+              df_eda_chr$NLI_3[11],
+              df_eda_chr$NLI_4[11],
+              df_eda_chr$NLI_5[11])
+
+df_chr <- data.frame(Mean_NLI_bw_chr,NLI_2021_chr,NLI_2022_chr,seq_month)
+
+df_chr <- df_chr %>% 
+  pivot_longer(
+    cols = c("NLI_2021_chr","NLI_2022_chr","Mean_NLI_bw_chr"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_chr$ord <- c(1:12)
+
+df_chr %>% 
+  ggplot(., aes(x=reorder(seq_month, ord),y=value, fill = NLI)) +
+  geom_bar(stat = "identity",position = "dodge",colour = "black") +
+  geom_text(aes(label = round(value,2)), colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)) +
+  labs(x="Month",y="NLI",title="Cherkaska oblast NLI", 
+       caption="Graph: Barplot")
+
+```
+
+### Boxplots
+
+We will see our distribution of NLI parameter by months described before to define how unique observations of 2022 are.
+
+#### Vinnytska oblsat
+
+```{r}
+
+df_box_vin <- df5 %>% 
+  select(., c("NLI_2","NLI_3","NLI_4","NLI_5")) %>% 
+  filter(., df5$reg == "UA_05" & df5$year > 2011 & df5$year < 2022)
+
+df_box_vin <- df_box_vin %>% 
+  pivot_longer(
+    cols = c("NLI_2","NLI_3","NLI_4","NLI_5"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_box_vin <- df_box_vin[order(df_box_vin$NLI),] 
+
+ggplot(df_box_vin, aes(x=as.factor(NLI), y=value, fill = as.factor(NLI)))+
+  geom_boxplot(col='black') + labs(x='Month') +
+  scale_fill_viridis_d(option = "D", name="BRC")+
+  theme_classic() +
+  labs(x="Month",title="Distribution of NLI before war", 
+       caption="Graph: Boxplot")
+
+```
+
+#### Dnipropetrovska oblsat
+
+```{r}
+
+df_box_dpr <- df5 %>% 
+  select(., c("NLI_2","NLI_3","NLI_4","NLI_5")) %>% 
+  filter(., df5$reg == "UA_12" & df5$year > 2011 & df5$year < 2022)
+
+df_box_dpr <- df_box_dpr %>% 
+  pivot_longer(
+    cols = c("NLI_2","NLI_3","NLI_4","NLI_5"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_box_dpr <- df_box_dpr[order(df_box_dpr$NLI),] 
+
+ggplot(df_box_dpr, aes(x=as.factor(NLI), y=value, fill = as.factor(NLI)))+
+  geom_boxplot(col='black') + labs(x='Month') +
+  scale_fill_viridis_d(option = "D", name="BRC")+
+  theme_classic() +
+  labs(x="Month",title="Distribution of NLI before war", 
+       caption="Graph: Boxplot")
+
+```
+
+#### Kirovohradska oblsat
+
+```{r}
+
+df_box_khd <- df5 %>% 
+  select(., c("NLI_2","NLI_3","NLI_4","NLI_5")) %>% 
+  filter(., df5$reg == "UA_35" & df5$year > 2011 & df5$year < 2022)
+
+df_box_khd <- df_box_khd %>% 
+  pivot_longer(
+    cols = c("NLI_2","NLI_3","NLI_4","NLI_5"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_box_khd <- df_box_khd[order(df_box_khd$NLI),] 
+
+ggplot(df_box_khd, aes(x=as.factor(NLI), y=value, fill = as.factor(NLI)))+
+  geom_boxplot(col='black') + labs(x='Month') +
+  scale_fill_viridis_d(option = "D", name="BRC")+
+  theme_classic() +
+  labs(x="Month",title="Distribution of NLI before war", 
+       caption="Graph: Boxplot")
+
+```
+
+#### Poltavska oblsat
+
+```{r}
+
+df_box_plt <- df5 %>% 
+  select(., c("NLI_2","NLI_3","NLI_4","NLI_5")) %>% 
+  filter(., df5$reg == "UA_53" & df5$year > 2011 & df5$year < 2022)
+
+df_box_plt <- df_box_plt %>% 
+  pivot_longer(
+    cols = c("NLI_2","NLI_3","NLI_4","NLI_5"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_box_plt <- df_box_plt[order(df_box_plt$NLI),] 
+
+ggplot(df_box_plt, aes(x=as.factor(NLI), y=value, fill = as.factor(NLI)))+
+  geom_boxplot(col='black') + labs(x='Month') +
+  scale_fill_viridis_d(option = "D", name="BRC")+
+  theme_classic() +
+  labs(x="Month",title="Distribution of NLI before war", 
+       caption="Graph: Boxplot")
+
+```
+
+#### Cherkaska oblsat
+
+```{r}
+
+df_box_chr <- df5 %>% 
+  select(., c("NLI_2","NLI_3","NLI_4","NLI_5")) %>% 
+  filter(., df5$reg == "UA_71" & df5$year > 2011 & df5$year < 2022)
+
+df_box_chr <- df_box_chr %>% 
+  pivot_longer(
+    cols = c("NLI_2","NLI_3","NLI_4","NLI_5"),
+    names_to = "NLI",
+    values_to = "value",
+    values_drop_na = TRUE
+  )
+
+df_box_chr <- df_box_chr[order(df_box_chr$NLI),] 
+
+ggplot(df_box_chr, aes(x=as.factor(NLI), y=value, fill = as.factor(NLI)))+
+  geom_boxplot(col='black') + labs(x='Month') +
+  scale_fill_viridis_d(option = "D", name="BRC")+
+  theme_classic() +
+  labs(x="Month",title="Distribution of NLI before war", 
+       caption="Graph: Boxplot")
+
+```
+As we can see, the real obtained result for this month, which is `r round(df5[13,"NLI_2"],2)` for February falls out of the Q1 to Q3 quantiles. However, the war just began.
+
+### Lineplots
+
+#### Poltavska oblast
+
+```{r message=FALSE, warning=FALSE}
+
+df7 <- df5
+df7[is.na(df7)] = 0
+df7$mean_NLI <- rowMeans(df7[,5:16])
+df7$mean_NLI2 <- rowMeans(df7[,17:28])
+
+ggplot(filter(df7, name == "Poltavska" & year > "2011-02-08"), aes(x = year, y = mean_NLI2)) +
+  geom_line(color = "#0099f9", size = 2) +
+  geom_point(color = "#0099f9", size = 5) +
+  geom_label(
+    aes(label = round(mean_NLI2,2)),
+     nudge_x = 0.01,
+     nudge_y = 0.01
+   )
+
+```
+
+#### Vinnytska oblast
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(filter(df7, name == "Vinnytska" & year > "2011-02-08"), aes(x = year, y = mean_NLI2)) +
+  geom_line(color = "#0099f9", size = 2) +
+  geom_point(color = "#0099f9", size = 5) +
+  geom_label(
+    aes(label = round(mean_NLI2,2)),
+     nudge_x = 0.01,
+     nudge_y = 0.01
+   )
+
+```
+
+#### Dnipropetrovska oblast
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(filter(df7, name == "Dnipropetrovska" & year > "2011-02-08"), aes(x = year, y = mean_NLI2)) +
+  geom_line(color = "#0099f9", size = 2) +
+  geom_point(color = "#0099f9", size = 5) +
+  geom_label(
+    aes(label = round(mean_NLI2,2)),
+     nudge_x = 0.01,
+     nudge_y = 0.01
+   )
+
+```
+
+#### Kirovohradska oblast
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(filter(df7, name == "Kirovohradska" & year > "2011-02-08"), aes(x = year, y = mean_NLI2)) +
+  geom_line(color = "#0099f9", size = 2) +
+  geom_point(color = "#0099f9", size = 5) +
+  geom_label(
+    aes(label = round(mean_NLI2,2)),
+     nudge_x = 0.01,
+     nudge_y = 0.01
+   )
+
+```
+
+#### Cherkaska oblast
+
+```{r message=FALSE, warning=FALSE}
+
+ggplot(filter(df7, name == "Cherkaska" & year > "2011-02-08"), aes(x = year, y = mean_NLI2)) +
+  geom_line(color = "#0099f9", size = 2) +
+  geom_point(color = "#0099f9", size = 5) +
+  geom_label(
+    aes(label = round(mean_NLI2,2)),
+     nudge_x = 0.01,
+     nudge_y = 0.01
+   )
+
+```
+
+
+### Piechart
+
+```{r message=FALSE, warning=FALSE}
+
+OtherGDP <- Region_by_year_GDP_panel$GDP[17] - df5$GDP[11] - df5$GDP[24] - df5$GDP[37] - df5$GDP[50] - df5$GDP[63]
+Poltavska <- df5$GDP[11]
+Vinnytska <- df5$GDP[24]
+Dnipropetrovska <- df5$GDP[37]
+Kirovohradska <- df5$GDP[50]
+Cherkaska <- df5$GDP[63]
+name_gdp <- c(OtherGDP, Poltavska, Vinnytska, Dnipropetrovska, Kirovohradska, Cherkaska)
+
+datam <- data.frame(
+  Oblast = c("Other", "Poltavska", "Vinnytska", "Dnipropetrovska", "Kirovohradska", "Cherkaska"),
+  GDP = name_gdp
+  )
+
+pchart <-  ggplot(datam, aes(x="", y = GDP, fill = Oblast)) + 
+  geom_bar(stat="identity", width=1, color="black") + 
+  coord_polar("y", start=0) +
+  theme_void() + 
+  theme(legend.position="right")
+pchart
+
+```
+
+
+
